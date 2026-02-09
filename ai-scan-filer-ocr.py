@@ -14,7 +14,7 @@ import time
 from pathlib import Path
 
 # Third-party packages
-import fitz  # PyMuPDF
+import pymupdf  # PyMuPDF
 import psutil
 from watchdog.observers import Observer
 from watchdog.events import FileSystemEventHandler
@@ -158,7 +158,7 @@ def wait_for_stable_file(path: Path, timeout_s=10):
 
 def export_layout_json(pdf_path: Path, json_path: Path, logger: Logger):
     try:
-        doc = fitz.open(str(pdf_path))
+        doc = pymupdf.open(str(pdf_path))
         payload = {
             "source_pdf": pdf_path.name,
             "page_count": doc.page_count,
@@ -204,12 +204,8 @@ def export_layout_json(pdf_path: Path, json_path: Path, logger: Logger) -> None:
     Export word-level coordinates from the PDF text layer.
     Output schema is stable and easy for later AI grouping.
     """
-    if fitz is None:
-        logger.log("Layout export skipped: pymupdf not installed (pip install pymupdf)")
-        return
-
     try:
-        doc = fitz.open(str(pdf_path))
+        doc = pymupdf.open(str(pdf_path))
         payload = {
             "source_pdf": pdf_path.name,
             "page_count": doc.page_count,
@@ -285,13 +281,22 @@ class Processor:
 
         out_path = self.processed / pdf_path.name
 
+        #cmd = [
+        #    "tesseract",
+        #    str(pdf_path),
+        #    str(out_path.with_suffix("")),
+        #    "-l", self.lang,
+        #    "--psm", str(self.psm),
+        #    "pdf"
+        #]
         cmd = [
-            "tesseract",
+            sys.executable, "-m", "ocrmypdf",
+            "--force-ocr",
+            "--language", self.lang,
+            "--tesseract-pagesegmode", str(self.psm),
+            "--jobs", self.jobs,
             str(pdf_path),
-            str(out_path.with_suffix("")),
-            "-l", self.lang,
-            "--psm", str(self.psm),
-            "pdf"
+            str(out_path),
         ]
 
         try:
@@ -360,6 +365,13 @@ class WatchHandler(FileSystemEventHandler):
         if event.is_directory:
             return
         path = Path(event.src_path)
+        if path.suffix.lower() == ".pdf":
+            self.work.enqueue(path)
+
+    def on_moved(self, event):
+        if event.is_directory:
+            return
+        path = Path(event.dest_path)
         if path.suffix.lower() == ".pdf":
             self.work.enqueue(path)
 

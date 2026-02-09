@@ -2,7 +2,7 @@
 # Watches a folder for PDFs, renaming and moving them using AI.
 
 import argparse
-import datetime
+from datetime import datetime
 import json
 import os
 from pathlib import Path
@@ -20,8 +20,61 @@ from watchdog.observers import Observer
 from watchdog.events import FileSystemEventHandler
 
 
-
 SCRIPT_ID = "ai-scan-filer"
+
+
+# =========================
+# AI Prompt
+# =========================
+
+def get_ai_prompt(features, config):
+    return f"""
+You are a document filing assistant.
+
+Based on the document features below, determine:
+- doc_type
+- provider or merchant
+- key fields (dates, amounts, account numbers)
+
+Return STRICT JSON only.
+
+Config naming templates:
+{json.dumps(config["naming"], indent=2)}
+
+Document features:
+{json.dumps(features, indent=2)}
+
+Return JSON:
+{{
+  "doc_type": "...",
+  "provider": "...",
+  "merchant": "...",
+  "statement_date": "...",
+  "payment_date": "...",
+  "service_date": "...",
+  "amount_due": "...",
+  "amount_paid": "...",
+  "account_number": "...",
+  "event_date": "...",
+  "title": "fallback short title"
+}}
+
+In the return JSON, try to include values for any other fields specified in the naming templates that I unintentionally left out of the list above.
+
+Date format:
+{json.dumps(config["date"]["format"], indent=2)}
+
+Priority of date types:
+{json.dumps(config["date"]["priority"], indent=2)}
+
+**Additional Notes***
+
+Documents usually have the name of the company that sent it or printed it at the very top of the page. This should be used for the provider or merchant if possible.
+
+The priority of date types should only be considered when determining the value specifically for the `{{date}}` field in a filename. Ignore this priority list for any other fields.
+
+If the document includes multiple event dates (visits, exams, surgeries, etc.), use the earliest one.
+"""
 
 
 # =========================
@@ -245,42 +298,17 @@ MODEL = "llama3.1:8b"
 
 
 def call_ollama(features, config):
-    prompt = f"""
-You are a document filing assistant.
-
-Based on the document features below, determine:
-- doc_type
-- provider or merchant
-- key fields (dates, amounts, account numbers)
-
-Return STRICT JSON only.
-
-Config naming templates:
-{json.dumps(config["naming"], indent=2)}
-
-Document features:
-{json.dumps(features, indent=2)}
-
-Return JSON:
-{{
-  "doc_type": "...",
-  "provider": "...",
-  "merchant": "...",
-  "statement_date": "...",
-  "payment_date": "...",
-  "service_date": "...",
-  "amount_due": "...",
-  "amount_paid": "...",
-  "account_number": "...",
-  "title": "fallback short title"
-}}
-"""
-
-    r = requests.post(
-        OLLAMA_URL,
-        json={"model": MODEL, "prompt": prompt, "stream": False},
-        timeout=120
-    )
+    prompt = get_ai_prompt(features, config)
+    try:
+        r = requests.post(
+            OLLAMA_URL,
+            json={"model": MODEL, "prompt": prompt, "stream": False},
+            timeout=120
+        )
+    except requests.exceptions.ConnectionError as e:
+        logger.log("Ollama not reachable at http://localhost:11434. Is it running?")
+        return {"doc_type": "unknown", "title": "OllamaUnavailable"}
+    
     r.raise_for_status()
     raw = r.json().get("response", "").strip()
 
@@ -330,7 +358,7 @@ def apply_template(template, fields):
 # MAIN PROCESS
 # =========================
 
-def process_pdf(pdf_path: Path, config):
+def process_pdf(pdf_path: Path, config, logger):
     if not wait_until_stable(pdf_path):
         return
 
@@ -341,6 +369,9 @@ def process_pdf(pdf_path: Path, config):
     layout = json.loads(layout_path.read_text(encoding="utf-8"))
 
     features = extract_features(layout)
+    
+    logger.log(f"Analyzing {pdf_path.name}")
+    
     meta = call_ollama(features, config)
 
     doc_type = meta.get("doc_type", "unknown")
@@ -357,22 +388,43 @@ def process_pdf(pdf_path: Path, config):
     moved = safe_move(pdf_path, dest_path)
     print(f"[✓] Filed: {moved}")
 
+    # Remove layout JSON after successful filing
+    layout_path = pdf_path.with_suffix(".pdf.layout.json")
+    try:
+        if layout_path.exists():
+            layout_path.unlink()
+            print(f"[✓] Removed layout file: {layout_path.name}")
+    except Exception as e:
+        print(f"[!] Failed to remove layout file: {layout_path.name} ({e})")
 
 # =========================
 # WATCHER
 # =========================
 
 class Handler(FileSystemEventHandler):
-    def __init__(self, config):
+    def __init__(self, config, logger):
         self.config = config
+        self.logger = logger
 
     def on_created(self, event):
         if event.is_directory:
             return
         p = Path(event.src_path)
         if p.suffix.lower() == ".pdf":
-            process_pdf(p, self.config)
+            try:
+                process_pdf(p, self.config, self.logger)
+            except Exception as e:
+                self.logger.log(f"AI filer error processing {p.name}: {e}")
 
+    def on_moved(self, event):
+        if event.is_directory:
+            return
+        p = Path(event.dest_path)
+        if p.suffix.lower() == ".pdf":
+            try:
+                process_pdf(p, self.config, self.logger)
+            except Exception as e:
+                self.logger.log(f"AI filer error processing {p.name}: {e}")
 
 # =========================
 # Config helpers
@@ -419,7 +471,7 @@ def main():
 
 
     observer = Observer()
-    observer.schedule(Handler(config), str(processed), recursive=False)
+    observer.schedule(Handler(config, logger), str(processed), recursive=False)
     observer.start()
 
     logger.log("Watching for PDFs. Ctrl+C to stop.")

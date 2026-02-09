@@ -1,9 +1,14 @@
 Option Explicit
 
-Dim sh, scriptDir, pyCmd, installBat, cfg, ocrScript, filerScript, showConsole
+Dim showConsole: showConsole = 1
+
+Dim sh, scriptDir, pyCmd, installBat, cfg, ocrScript, filerScript
 Set sh = CreateObject("WScript.Shell")
 
-showConsole = 1
+' Start Ollama server (non-blocking)
+sh.Run "ollama pull llama3.1:8b", 1, False
+sh.Run "ollama serve", 0, False
+WScript.Sleep 1500
 
 ' Folder where this VBS lives (put it next to your .bat + scripts)
 scriptDir = Left(WScript.ScriptFullName, InStrRev(WScript.ScriptFullName, "\"))

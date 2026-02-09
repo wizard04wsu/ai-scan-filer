@@ -1,5 +1,5 @@
 {
-	"root": "F:\\Files\\Documentation",
+	"root": "F:\\Files\\Documentation\\- Test 1",
 	
 	"paths": {
 		"inbox": "- Inbox",
@@ -54,8 +54,8 @@
 	},
 	
 	"naming": {
-		"eob": "{date} {provider} #{account_number} - EOB ({service_date_range}).pdf",
-		"medical_bill": "{date} {provider} - BILL ({service_date_range}).pdf",
+		"eob": "{date} {provider} #{account_number} - EOB ({event_date}).pdf",
+		"medical_bill": "{date} {provider} - BILL ({event_date}).pdf",
 		"policy": "{date} {provider} #{account_number} - POLICY.pdf",
 		"receipt": "{date} {merchant} - RECEIPT.pdf",
 		"tax": "{tax_year} {tax_form}.pdf",
