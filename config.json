@@ -1,0 +1,64 @@
+{
+	"root": "F:\\Files\\Documentation",
+	
+	"paths": {
+		"inbox": "- Inbox",
+		"processed": "- Inbox\\Processed",
+				"archive": "- Inbox\\Originals",
+		"unsorted": "- Unsorted",
+		"runtime": ".runtime",
+		"log_file": "ai-scan-filer.log",
+		"log_max_kb": 512
+	},
+	
+	"tesseract": {
+		"tessdata_prefix": "C:\\Program Files\\Tesseract-OCR\\tessdata"
+	},
+	
+	"ocr": {
+		"action": "delete",
+		"lang": "eng",
+		"psm": "11",
+		"jobs": "4",
+		"process_existing": true,
+		"capture_errors": false,
+		"hash_db": "processed_hashes.json",
+		"log_file": "ai-scan-filer-ocr.log",
+		"log_max_kb": 512
+	},
+	
+	"folders": {
+		"Medical": {
+			"Bills": {},
+			"EOBs": {},
+			"Policies": {},
+			"Records": {}
+		},
+		"Maintenance": {
+			"Receipts": {}
+		},
+		"Bills": {},
+		"Taxes": {
+			"{tax_year}": {}
+		}
+	},
+	
+	"date": {
+		"priority": [
+			"service_date",
+			"statement_date",
+			"payment_date",
+			"file_date"
+		],
+		"format": "yyyy-mm-dd"
+	},
+	
+	"naming": {
+		"eob": "{date} {provider} #{account_number} - EOB ({service_date_range}).pdf",
+		"medical_bill": "{date} {provider} - BILL ({service_date_range}).pdf",
+		"policy": "{date} {provider} #{account_number} - POLICY.pdf",
+		"receipt": "{date} {merchant} - RECEIPT.pdf",
+		"tax": "{tax_year} {tax_form}.pdf",
+		"unknown": "{date} {title}.pdf"
+	}
+}
