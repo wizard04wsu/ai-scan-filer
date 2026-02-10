@@ -45,8 +45,8 @@
 	
 	"date": {
 		"priority": [
-			"service_date",
 			"statement_date",
+			"service_date",
 			"payment_date",
 			"file_date"
 		],
@@ -54,9 +54,11 @@
 	},
 	
 	"naming": {
-		"eob": "{date} {provider} #{account_number} - EOB ({event_date}).pdf",
-		"medical_bill": "{date} {provider} - BILL ({event_date}).pdf",
+		"medical_bill": "{date} {provider} - BILL ({service_date}).pdf",
+		"unknown_bill": "{date} {merchant} - BILL.pdf",
+		"medical_eob": "{date} {provider} #{account_number} - EOB ({service_date}).pdf",
 		"policy": "{date} {provider} #{account_number} - POLICY.pdf",
+		"bank_statement": "{date} {bank} #{account_number} - STATEMENT.pdf",
 		"receipt": "{date} {merchant} - RECEIPT.pdf",
 		"tax": "{tax_year} {tax_form}.pdf",
 		"unknown": "{date} {title}.pdf"

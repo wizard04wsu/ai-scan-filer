@@ -225,13 +225,11 @@ def wait_until_stable(path: Path, timeout_s=10.0):
 # DATE HANDLING
 # =========================
 
-FORMAT_MAP = {
-    "yyyy-mm-dd": "%Y-%m-%d",
-    "mm-dd-yyyy": "%m-%d-%Y",
-    "dd-mm-yyyy": "%d-%m-%Y",
-    "yyyy.mm.dd": "%Y.%m.%d",
-    "yyyyMMdd": "%Y%m%d"
-}
+DATE_MONTH_RE = r"(Jan(?:uary)?)|(Feb(?:ruary)?)|(Mar(?:ch)?)|(Apr(?:il)?)|(May)|(Jun(?:e)?)|(Jul(?:y)?)|(Aug(?:ust)?)|(Sep(?:tember)?)|(Oct(?:ober)?)|(Nov(?:ember)?)|(Dec(?:ember)?)"
+DATE_MMMDY_RE = r"(" + DATE_MONTH_RE + r")\s+(\d{1,2}),?\s+((?:19|20)\d{2})"
+DATE_MDY_RE = r"(\d{1,2})\s?[-/.]\s?(\d{1,2})\s?[-/.]\s?((?:19|20)\d{2})"
+DATE_YMD_RE = r"((?:19|20)\d{2})\s?[-/.]\s?(\d{1,2})\s?[-/.]\s?(\d{1,2})"
+DATE_RE = re.compile(r"(\b(?:" + DATE_MDY_RE + r"|" + DATE_YMD_RE + r"|" + DATE_MMMDY_RE + r")\b)")
 
 
 def select_date(meta, config, file_path):
@@ -253,8 +251,27 @@ def select_date(meta, config, file_path):
 def format_date(dt, config):
     if not dt:
         return "undated"
-    fmt = config["date"].get("format", "yyyy-mm-dd")
-    return dt.strftime(FORMAT_MAP.get(fmt, "%Y-%m-%d"))
+    try:
+        fmt = config["date"].get("format", "yyyy-mm-dd").lower().replace("yyyy", "%Y")
+        fmt = re.sub(r"([ymd]){2}", "%\1", fmt)
+        return dt.strftime(fmt)
+    except Exception:
+        return ""
+
+
+def date_to_iso(dt):
+    matches = re.findall(DATE_MONTH_RE, dt, re.I)
+    if len(matches):
+        for index, match in enumerate(list(matches[0])):
+            if len(match):
+                matches = list(re.findall(DATE_MMMDY_RE, dt, re.I)[0])
+                iso_date = matches[14] + "-" + str(index + 1) + "-" + matches[13]
+                print("new date 1:", iso_date)
+                return iso_date
+    matches = list(re.findall(DATE_MDY_RE + r"|" + DATE_YMD_RE, dt, re.I)[0])
+    iso_date = matches[2]+matches[3] + "-" + matches[0]+matches[4] + "-" + matches[1]+matches[5]
+    print("new date 2:", iso_date)
+    return iso_date
 
 
 # =========================
@@ -262,7 +279,6 @@ def format_date(dt, config):
 # =========================
 
 MONEY_RE = re.compile(r"\$?\s*([0-9]{1,3}(?:,[0-9]{3})*\.[0-9]{2})")
-DATE_RE = re.compile(r"\b(20\d{2})[-/\.](\d{2})[-/\.](\d{2})\b")
 
 
 def extract_features(layout):
@@ -271,10 +287,12 @@ def extract_features(layout):
 
     texts = [w["text"] for w in words]
     all_text = " ".join(texts).lower()
+    
+    dates = [date_to_iso(match[0]) for match in DATE_RE.findall(" ".join(texts))]
 
     candidates = {
         "amounts": MONEY_RE.findall(" ".join(texts)),
-        "dates": DATE_RE.findall(" ".join(texts))
+        "dates": dates
     }
 
     keywords = []
@@ -369,6 +387,10 @@ def process_pdf(pdf_path: Path, config, logger):
     layout = json.loads(layout_path.read_text(encoding="utf-8"))
 
     features = extract_features(layout)
+    
+    # TODO: remove after integrating logging module
+    from pprint import pprint
+    pprint(features)
     
     logger.log(f"Analyzing {pdf_path.name}")
     
