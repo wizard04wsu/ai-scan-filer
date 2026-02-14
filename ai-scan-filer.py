@@ -2,7 +2,7 @@
 # Watches a folder for PDFs, renaming and moving them using AI.
 
 import argparse
-from datetime import datetime
+from datetime import date, datetime
 import json
 import os
 from pathlib import Path
@@ -18,70 +18,17 @@ import psutil
 import requests
 from watchdog.observers import Observer
 from watchdog.events import FileSystemEventHandler
+from aiprompt import get_ai_prompt
+from pprint import pprint
 
 
 SCRIPT_ID = "ai-scan-filer"
-
-
-# =========================
-# AI Prompt
-# =========================
-
-def get_ai_prompt(features, config):
-    return f"""
-You are a document filing assistant.
-
-Based on the document features below, determine:
-- doc_type
-- provider or merchant
-- key fields (dates, amounts, account numbers)
-
-Return STRICT JSON only.
-
-Config naming templates:
-{json.dumps(config["naming"], indent=2)}
-
-Document features:
-{json.dumps(features, indent=2)}
-
-Return JSON:
-{{
-  "doc_type": "...",
-  "provider": "...",
-  "merchant": "...",
-  "statement_date": "...",
-  "payment_date": "...",
-  "service_date": "...",
-  "amount_due": "...",
-  "amount_paid": "...",
-  "account_number": "...",
-  "event_date": "...",
-  "title": "fallback short title"
-}}
-
-In the return JSON, try to include values for any other fields specified in the naming templates that I unintentionally left out of the list above.
-
-Date format:
-{json.dumps(config["date"]["format"], indent=2)}
-
-Priority of date types:
-{json.dumps(config["date"]["priority"], indent=2)}
-
-**Additional Notes***
-
-Documents usually have the name of the company that sent it or printed it at the very top of the page. This should be used for the provider or merchant if possible.
-
-The priority of date types should only be considered when determining the value specifically for the `{{date}}` field in a filename. Ignore this priority list for any other fields.
-
-If the document includes multiple event dates (visits, exams, surgeries, etc.), use the earliest one.
-"""
-
 
 # =========================
 # Ensure Single Instance
 # =========================
 
-def get_pid_file(config):
+def get_pid_file():
     root = Path(config["root"])
     runtime = config["paths"].get("runtime", ".runtime")
 
@@ -96,7 +43,7 @@ def _proc_cmdline(pid: int):
     except Exception:
         return ""
 
-def ensure_single_instance_kill_previous(config):
+def ensure_single_instance_kill_previous():
     """
     If a previous instance is running, terminate it.
     Guarded by checking the process cmdline contains SCRIPT_ID or script filename.
@@ -104,7 +51,7 @@ def ensure_single_instance_kill_previous(config):
     this_pid = os.getpid()
 
     # Attempt to stop previous
-    pid_file = get_pid_file(config)
+    pid_file = get_pid_file()
     if pid_file.exists():
         try:
             old_pid = int(pid_file.read_text(encoding="utf-8").strip())
@@ -232,7 +179,7 @@ DATE_YMD_RE = r"((?:19|20)\d{2})\s?[-/.]\s?(\d{1,2})\s?[-/.]\s?(\d{1,2})"
 DATE_RE = re.compile(r"(\b(?:" + DATE_MDY_RE + r"|" + DATE_YMD_RE + r"|" + DATE_MMMDY_RE + r")\b)")
 
 
-def select_date(meta, config, file_path):
+def select_date(meta, file_path):
     priority = config["date"]["priority"]
 
     for key in priority:
@@ -248,16 +195,53 @@ def select_date(meta, config, file_path):
     return None
 
 
-def format_date(dt, config):
-    if not dt:
-        return "undated"
-    try:
-        fmt = config["date"].get("format", "yyyy-mm-dd").lower().replace("yyyy", "%Y")
-        fmt = re.sub(r"([ymd]){2}", "%\1", fmt)
-        return dt.strftime(fmt)
-    except Exception:
-        return ""
+from datetime import datetime, date
 
+def python_strftime_format(cfg_fmt: str) -> str:
+    """
+    Convert config format like 'yyyy-mm-dd' into Python strftime like '%Y-%m-%d'.
+    Supports: yyyy, yy, mm, m, dd, d (keeps separators as-is).
+    """
+    fmt = (cfg_fmt or "yyyy-mm-dd").lower()
+    # Replace longer tokens first
+    fmt = fmt.replace("yyyy", "%Y").replace("yy", "%y")
+    fmt = fmt.replace("mm", "%m").replace("dd", "%d")
+    # If user typed single-letter tokens, normalize them too
+    fmt = fmt.replace("%m", "%m").replace("%d", "%d")
+    return fmt
+
+def format_date(dt_value) -> str:
+    if not dt_value:
+        return "undated"
+
+    # Accept datetime/date objects OR ISO strings
+    try:
+        if isinstance(dt_value, str):
+            # handle ISO 'YYYY-MM-DD' (and tolerate a trailing time)
+            dt_value = datetime.fromisoformat(dt_value[:10])
+        elif isinstance(dt_value, date) and not isinstance(dt_value, datetime):
+            dt_value = datetime(dt_value.year, dt_value.month, dt_value.day)
+
+        fmt_cfg = config.get("date", {}).get("format", "yyyy-mm-dd")
+        fmt = python_strftime_format(fmt_cfg)
+        return dt_value.strftime(fmt)
+    except Exception:
+        return "date_error"
+
+def month_name_to_number(month_name):
+    """
+    Converts a month name (e.g., 'January' or 'Jan') to its number (1-12).
+    Case-insensitive.
+    """
+    # Determine format based on name length or simply try with '%b' after slicing
+    try:
+        # Try parsing as full month name
+        date_object = datetime.datetime.strptime(month_name, '%B')
+    except ValueError:
+        # If that fails, try parsing as abbreviated month name
+        date_object = datetime.datetime.strptime(month_name, '%b')
+    
+    return date_object.month
 
 def date_to_iso(dt):
     matches = re.findall(DATE_MONTH_RE, dt, re.I)
@@ -266,11 +250,9 @@ def date_to_iso(dt):
             if len(match):
                 matches = list(re.findall(DATE_MMMDY_RE, dt, re.I)[0])
                 iso_date = matches[14] + "-" + str(index + 1) + "-" + matches[13]
-                print("new date 1:", iso_date)
                 return iso_date
     matches = list(re.findall(DATE_MDY_RE + r"|" + DATE_YMD_RE, dt, re.I)[0])
     iso_date = matches[2]+matches[3] + "-" + matches[0]+matches[4] + "-" + matches[1]+matches[5]
-    print("new date 2:", iso_date)
     return iso_date
 
 
@@ -279,6 +261,8 @@ def date_to_iso(dt):
 # =========================
 
 MONEY_RE = re.compile(r"\$?\s*([0-9]{1,3}(?:,[0-9]{3})*\.[0-9]{2})")
+#ACCOUNT_NUMBER_RE = re.compile(r"(?i)\b(\d[\d-]{9,}\d|(?=[a-z-]*\d)[a-z\d][a-z\d-]{4,}[a-z\d])\b")
+ACCOUNT_NUMBER_RE = re.compile(r"(?i)(?:^|\s)\b([a-z]{,3}\d{6,})\b(?=\s|$)")
 
 
 def extract_features(layout):
@@ -288,55 +272,77 @@ def extract_features(layout):
     texts = [w["text"] for w in words]
     all_text = " ".join(texts).lower()
     
-    dates = [date_to_iso(match[0]) for match in DATE_RE.findall(" ".join(texts))]
+    dates = [date_to_iso(match[0]) for match in DATE_RE.findall(all_text)]
+    # Remove duplicates.
+    dates = list(set(dates))
+    
+    amounts = []
+    for amt in MONEY_RE.findall(all_text):
+        amounts.append(amt.replace(",", ""))
+    # Remove duplicates.
+    amounts = list(set(amounts))
+    
+#    account_numbers = ACCOUNT_NUMBER_RE.findall(all_text)
+    account_numbers = [match[0] for match in ACCOUNT_NUMBER_RE.findall(all_text)]
+    
+    # Remove duplicates.
+    account_numbers = list(set(account_numbers))
 
     candidates = {
-        "amounts": MONEY_RE.findall(" ".join(texts)),
-        "dates": dates
+        "amounts": amounts,
+        "dates": dates,
+        "account_numbers": account_numbers,
     }
 
     keywords = []
-    for kw in ["statement", "receipt", "invoice", "eob", "payment", "bill"]:
-        if kw in all_text:
+    for kw in config["keywords"]:
+        if kw in all_text.lower():
             keywords.append(kw)
 
-    return {
+    features = {
         "candidates": candidates,
         "keywords": keywords,
         "sample_text": " ".join(texts[:200])
     }
+    pprint(features)
+    return features
 
 
 # =========================
-# OLLAMA CALL
+# OLLAMA AI CALL
 # =========================
 
 OLLAMA_URL = "http://localhost:11434/api/generate"
 MODEL = "llama3.1:8b"
 
 
-def call_ollama(features, config):
-    prompt = get_ai_prompt(features, config)
-    try:
-        r = requests.post(
-            OLLAMA_URL,
-            json={"model": MODEL, "prompt": prompt, "stream": False},
-            timeout=120
-        )
-    except requests.exceptions.ConnectionError as e:
-        logger.log("Ollama not reachable at http://localhost:11434. Is it running?")
-        return {"doc_type": "unknown", "title": "OllamaUnavailable"}
-    
-    r.raise_for_status()
+def call_ollama(features: dict):
+    prompt = (
+        get_ai_prompt(config)
+        + "\n\nFEATURE_PACK_JSON:\n"
+        + json.dumps(features, ensure_ascii=False)
+        + "\n\nReturn STRICT JSON ONLY."
+    )
+
+    r = requests.post(
+        OLLAMA_URL,
+        json={
+            "model": MODEL,
+            "prompt": prompt,
+            "stream": False,
+            "format": "json",   # key improvement if Ollama supports it
+        },
+        timeout=120,
+    )
+    if r.status_code >= 400:
+        logger.log(f"Ollama HTTP {r.status_code}: {r.text[:800]}")
+        r.raise_for_status()
+
     raw = r.json().get("response", "").strip()
-
-    m = re.search(r"\{.*\}", raw, flags=re.S)
-    if not m:
-        return {"doc_type": "unknown"}
-
     try:
-        return json.loads(m.group(0))
+        return json.loads(raw)
     except Exception:
+        logger.log(f"Ollama non-JSON response (first 800 chars): {raw[:800]}")
         return {"doc_type": "unknown"}
 
 
@@ -344,18 +350,10 @@ def call_ollama(features, config):
 # PATH + NAMING
 # =========================
 
-def build_dest_path(config, doc_type):
+def build_dest_path(doc_type):
     root = Path(config["root"])
     folders = config["folders"]
-
-    # simple mapping for now
-    mapping = {
-        "eob": ["Medical", "EOBs"],
-        "medical_bill": ["Medical", "Bills"],
-        "receipt": ["Receipts"],
-        "bill": ["Bills"],
-        "tax": ["Taxes"]
-    }
+    mapping = config["mapping"]
 
     parts = mapping.get(doc_type, [config["paths"]["unsorted"]])
     path = root
@@ -376,7 +374,7 @@ def apply_template(template, fields):
 # MAIN PROCESS
 # =========================
 
-def process_pdf(pdf_path: Path, config, logger):
+def process_pdf(pdf_path: Path, logger):
     if not wait_until_stable(pdf_path):
         return
 
@@ -388,23 +386,35 @@ def process_pdf(pdf_path: Path, config, logger):
 
     features = extract_features(layout)
     
-    # TODO: remove after integrating logging module
-    from pprint import pprint
+    logger.log("==========")
+    logger.log("Features:")
     pprint(features)
+    logger.log("----------")
     
     logger.log(f"Analyzing {pdf_path.name}")
     
-    meta = call_ollama(features, config)
+    meta = call_ollama(features)
+    
+    logger.log("==========")
+    logger.log("Meta:")
+    pprint(meta)
+    logger.log("----------")
 
     doc_type = meta.get("doc_type", "unknown")
 
-    dt = select_date(meta, config, pdf_path)
-    meta["date"] = format_date(dt, config)
+    # Ensure title always exists
+    title = meta.get("title", "").strip()
+    if not title:
+        title = pdf_path.stem or "Untitled"
+    meta["title"] = title
+
+    dt = select_date(meta, pdf_path)
+    meta["date"] = format_date(dt)
 
     template = config["naming"].get(doc_type, config["naming"]["unknown"])
     filename = apply_template(template, meta)
 
-    dest_dir = build_dest_path(config, doc_type)
+    dest_dir = build_dest_path(doc_type)
     dest_path = dest_dir / filename
 
     moved = safe_move(pdf_path, dest_path)
@@ -424,7 +434,7 @@ def process_pdf(pdf_path: Path, config, logger):
 # =========================
 
 class Handler(FileSystemEventHandler):
-    def __init__(self, config, logger):
+    def __init__(self, logger):
         self.config = config
         self.logger = logger
 
@@ -433,20 +443,20 @@ class Handler(FileSystemEventHandler):
             return
         p = Path(event.src_path)
         if p.suffix.lower() == ".pdf":
-            try:
-                process_pdf(p, self.config, self.logger)
-            except Exception as e:
-                self.logger.log(f"AI filer error processing {p.name}: {e}")
+            #try:
+                process_pdf(p, self.logger)
+            #except Exception as e:
+            #    self.logger.log(f"AI filer error processing {p.name}: {e}")
 
     def on_moved(self, event):
         if event.is_directory:
             return
         p = Path(event.dest_path)
         if p.suffix.lower() == ".pdf":
-            try:
-                process_pdf(p, self.config, self.logger)
-            except Exception as e:
-                self.logger.log(f"AI filer error processing {p.name}: {e}")
+            #try:
+                process_pdf(p, self.logger)
+            #except Exception as e:
+            #    self.logger.log(f"AI filer error processing {p.name}: {e}")
 
 # =========================
 # Config helpers
@@ -470,9 +480,10 @@ def main():
         if args.config
         else Path(__file__).with_name("config.json")
     )
+    global config
     config = load_config(config_path)
     
-    ensure_single_instance_kill_previous(config)
+    ensure_single_instance_kill_previous()
 
     root = Path(config["root"]).expanduser()
     paths = config["paths"]
@@ -482,6 +493,7 @@ def main():
     runtime.mkdir(parents=True, exist_ok=True)
     processed.mkdir(parents=True, exist_ok=True)
     
+    global logger
     log_file = runtime / paths.get("log_file", "ai-scan-filer.log")
     log_max_kb = paths.get("log_max_kb", 512)
     logger = Logger(log_file, log_max_kb, enabled=True)
@@ -490,10 +502,9 @@ def main():
     logger.log(f"Runtime: {runtime}")
     logger.log(f"Config: {config_path}")
     logger.log(f"Watching: {processed}")
-
-
+    
     observer = Observer()
-    observer.schedule(Handler(config, logger), str(processed), recursive=False)
+    observer.schedule(Handler(logger), str(processed), recursive=False)
     observer.start()
 
     logger.log("Watching for PDFs. Ctrl+C to stop.")

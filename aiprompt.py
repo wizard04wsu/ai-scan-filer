@@ -1,3 +1,7 @@
+import json
+
+def get_ai_prompt(config):
+    return f"""
 You are part of an automated document filing system.
 
 Your role is NOT to parse raw PDFs and NOT to invent data.
@@ -29,9 +33,9 @@ System constraints (must follow exactly):
    - No trailing text.
 
 5) Output schema:
-{
-  "doc_type": "<one of: medical_bill, unknown_bill, medical_eob, policy, bank_statement, receipt, tax, unknown>",
-  "fields": {
+{{
+  "doc_type": "<one of: {', '.join(json.loads(config["doc_type"]).keys())}>",
+  "fields": {{
     "statement_date": "<ISO YYYY-MM-DD or null>",
     "service_date": "<ISO YYYY-MM-DD or null>",
     "payment_date": "<ISO YYYY-MM-DD or null>",
@@ -44,12 +48,12 @@ System constraints (must follow exactly):
     "tax_year": "<ISO YYYY or null>",
     "tax_form": "<string or null>",
     "title": "<short human-readable label or null>"
-  },
+  }},
   "confidence": 0.0,
   "evidence": [
     "<short reasons referencing keywords, anchors, or proximity>"
   ]
-}
+}}
 
 6) If multiple candidates exist for a field:
    - Select the one most strongly supported by anchors and proximity.
@@ -65,8 +69,4 @@ System constraints (must follow exactly):
 9) Be succinct with evidence items.
    - Use ONLY single-line strings.
    - Each evidence item MUST NOT be longer than 120 characters.
-
-Acknowledge these constraints by replying with:
-{
-  "acknowledged": true
-}
+    """

@@ -3,64 +3,177 @@
 	
 	"paths": {
 		"inbox": "- Inbox",
-		"processed": "- Inbox\\Processed",
-				"archive": "- Inbox\\Originals",
-		"unsorted": "- Unsorted",
+		"processed": "- Inbox\\OCR",
+		"archive": "- Inbox\\Original",
+		"unsorted": "- Inbox\\Unsorted",
 		"runtime": ".runtime",
 		"log_file": "ai-scan-filer.log",
 		"log_max_kb": 512
 	},
 	
-	"tesseract": {
-		"tessdata_prefix": "C:\\Program Files\\Tesseract-OCR\\tessdata"
-	},
-	
 	"ocr": {
-		"action": "delete",
+		"actionOnProcessed": "delete",
 		"lang": "eng",
 		"psm": "11",
 		"jobs": "4",
 		"process_existing": true,
 		"capture_errors": false,
+		"skip_duplicates": false,
 		"hash_db": "processed_hashes.json",
 		"log_file": "ai-scan-filer-ocr.log",
 		"log_max_kb": 512
 	},
 	
-	"folders": {
-		"Medical": {
-			"Bills": {},
-			"EOBs": {},
-			"Policies": {},
-			"Records": {}
+	"keywords": [
+		"account",
+		"bank",
+		"benefits",
+		"bill",
+		"county",
+		"due",
+		"eob",
+		"federal",
+		"form",
+		"invoice",
+		"vendor",
+		"pay",
+		"paid",
+		"payment",
+		"policy",
+		"provider",
+		"receipt",
+		"service",
+		"state",
+		"statement",
+		"tax"
+	],
+	
+	"field_type": {
+		"biller": {
+			"format": "<string or null>",
+			"description": "entity at the 'remit to' or 'pay to' address"
 		},
-		"Maintenance": {
-			"Receipts": {}
+		
+		"service_provider": {
+			"format": "<string or null>",
+			"description": "facility or clinic where the service occurred"
 		},
-		"Bills": {},
-		"Taxes": {
-			"{tax_year}": {}
+		"physician": {
+			"format": "<string or null>",
+			"description": "doctor listed as 'referring' or 'ordered by'"
+		},
+		"service_date": {
+			"format": "<ISO YYYY-MM-DD or null>",
+			"description": "date the service was performed"
+		},
+		
+		"vendor": {
+			"format": "<string or null>",
+			"description": "person or company that made the sale"
+		},
+		"bank": {
+			"format": "<string or null>",
+			"description": "bank or other financial institution"
+		},
+		"statement_date": {
+			"format": "<ISO YYYY-MM-DD or null>",
+			"description": "date of the statement, bill, or receipt"
+		},
+		"payment_date": {
+			"format": "<ISO YYYY-MM-DD or null>",
+			"description": "date the bill was paid"
+		},
+		"amount_due": {
+			"format": "<decimal string or null>",
+			"description": "payment due or amount owed"
+		},
+		"amount_paid": {
+			"format": "<decimal string or null>",
+			"description": "amount paid"
+		},
+		"account_number": {
+			"format": "<string or null>",
+			"description": "account number or member ID"
+		},
+		"bank_account_type": {
+			"format": "<string or null>",
+			"description": "type of financial account (checking, savings, IRA, etc.)"
+		},
+		"tax_year": {
+			"format": "<ISO YYYY or null>",
+			"description": "tax year"
+		},
+		"tax_form": {
+			"format": "<string or null>",
+			"description": "short name of a tax form (W2, 1099-INT, etc.)"
+		},
+		"title": {
+			"format": "<string or null>",
+			"description": "short human-readable label"
 		}
 	},
 	
-	"date": {
-		"priority": [
-			"statement_date",
-			"service_date",
-			"payment_date",
-			"file_date"
-		],
-		"format": "yyyy-mm-dd"
-	},
-	
-	"naming": {
-		"medical_bill": "{date} {provider} - BILL ({service_date}).pdf",
-		"unknown_bill": "{date} {merchant} - BILL.pdf",
-		"medical_eob": "{date} {provider} #{account_number} - EOB ({service_date}).pdf",
-		"policy": "{date} {provider} #{account_number} - POLICY.pdf",
-		"bank_statement": "{date} {bank} #{account_number} - STATEMENT.pdf",
-		"receipt": "{date} {merchant} - RECEIPT.pdf",
-		"tax": "{tax_year} {tax_form}.pdf",
-		"unknown": "{date} {title}.pdf"
+	"doc_type": {
+		"medical_invoice": {
+			"location": ["Medical", "Bill"],
+			"naming": [
+				"{statement_date} BILL - {billing_provider} ({service_date} {service_provider}).pdf",
+				"{statement_date} BILL - {billing_provider} ({service_provider}).pdf",
+				"{statement_date} BILL - {billing_provider} ({service_date}).pdf",
+				"{statement_date} BILL - {service_provider} ({service_date}).pdf",
+				"{statement_date} BILL - {service_provider}.pdf"
+			]
+		},
+		"unknown_bill": {
+			"location": ["Unsorted", "Bill"],
+			"naming": [
+				"{statement_date} BILL - {billing_provider} ({service_date} {vendor}).pdf",
+				"{statement_date} BILL - {billing_provider} ({vendor}).pdf",
+				"{statement_date} BILL - {billing_provider} ({service_date}).pdf",
+				"{statement_date} BILL - {billing_provider}.pdf",
+				"{statement_date} BILL - {vendor}.pdf"
+			]
+		},
+		"medical_eob": {
+			"location": ["Medical", "EOB"],
+			"naming": [
+				"{statement_date} EOB - {billing_provider} #{account_number} ({service_date} {service_provider}).pdf",
+				"{statement_date} EOB - {billing_provider} #{account_number} ({service_provider}).pdf",
+				"{statement_date} EOB - {billing_provider} #{account_number} ({service_date}).pdf",
+				"{statement_date} EOB - {billing_provider} ({service_date} {service_provider}).pdf",
+				"{statement_date} EOB - {billing_provider} ({service_provider}).pdf",
+				"{statement_date} EOB - {billing_provider} ({service_date}).pdf"
+			]
+		},
+		"medical_policy": {
+			"location": ["Medical", "Policy"],
+			"naming": [
+				"{date} POLICY - {service_provider} #{account_number}.pdf"
+			]
+		},
+		"bank_statement": {
+			"location": [],
+			"naming": [
+				"{date} STATEMENT - {bank} #{account_number}.pdf"
+			]
+		},
+		"receipt": {
+			"location": ["Receipts"],
+			"naming": [
+				"{date} RECEIPT - {vendor}.pdf"
+			]
+		},
+		"tax": {
+			"location": ["Taxes", "{tax_year}"],
+			"naming": [
+				"{tax_year} TAXES - {tax_form}.pdf"
+			]
+		},
+		"unknown": {
+			"location": [],
+			"naming": [
+				"{date} {title}.pdf"
+			]
+		}
 	}
 }

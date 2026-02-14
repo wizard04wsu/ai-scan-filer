@@ -245,17 +245,18 @@ def export_layout_json(pdf_path: Path, json_path: Path, logger: Logger) -> None:
 
 class Processor:
     def __init__(self, inbox, processed, archive, db_path,
-                 action, lang, psm, jobs, capture_errors, logger):
+                 actionOnProcessed, lang, psm, jobs, capture_errors, logger, skip_duplicates):
         self.inbox = inbox
         self.processed = processed
         self.archive = archive
         self.db_path = db_path
-        self.action = action
+        self.actionOnProcessed = actionOnProcessed
         self.lang = lang
         self.psm = psm
         self.jobs = jobs
         self.capture_errors = capture_errors
         self.logger = logger
+        self.skip_duplicates = skip_duplicates
         self.hash_db = self._load_db()
 
     def _load_db(self):
@@ -273,22 +274,15 @@ class Processor:
     def process(self, pdf_path: Path):
         if not wait_for_stable_file(pdf_path):
             return
-
+        
         h = sha256_file(pdf_path)
-        if h in self.hash_db:
-            self.logger.log(f"Skipping duplicate: {pdf_path.name}")
-            return
+        if self.skip_duplicates:
+            if h in self.hash_db:
+                self.logger.log(f"Skipping duplicate: {pdf_path.name}")
+                return
 
         out_path = self.processed / pdf_path.name
 
-        #cmd = [
-        #    "tesseract",
-        #    str(pdf_path),
-        #    str(out_path.with_suffix("")),
-        #    "-l", self.lang,
-        #    "--psm", str(self.psm),
-        #    "pdf"
-        #]
         cmd = [
             sys.executable, "-m", "ocrmypdf",
             "--force-ocr",
@@ -315,9 +309,9 @@ class Processor:
         export_layout_json(out_path, layout_path, self.logger)
 
         # Handle original
-        if self.action == "delete":
+        if self.actionOnProcessed == "delete":
             pdf_path.unlink(missing_ok=True)
-        elif self.action == "archive":
+        elif self.actionOnProcessed == "archive":
             dest = self.archive / pdf_path.name
             shutil.move(str(pdf_path), str(dest))
         
@@ -400,33 +394,33 @@ def main():
     )
     config = load_config(config_path)
     
+    
     ensure_single_instance_kill_previous(config)
+    
 
     root = Path(config["root"]).expanduser()
     paths = config["paths"]
-    ocr_cfg = config.get("ocr", {})
-
+    
     inbox = root / paths.get("inbox", "Inbox")
     processed = root / paths.get("processed", "Processed")
-    archive = root / paths.get("archive", "Originals")
     runtime = root / paths.get("runtime", ".runtime")
-
-    runtime.mkdir(parents=True, exist_ok=True)
+    archive = root / paths.get("archive", "Originals")
+    
     inbox.mkdir(parents=True, exist_ok=True)
     processed.mkdir(parents=True, exist_ok=True)
-
-    action = ocr_cfg.get("action", "none")
+    runtime.mkdir(parents=True, exist_ok=True)
+    archive.mkdir(parents=True, exist_ok=True)
+    
+    ocr_cfg = config.get("ocr", {})
     lang = ocr_cfg.get("lang", "eng")
     psm = ocr_cfg.get("psm", "11")
     jobs = ocr_cfg.get("jobs", "4")
+
+    actionOnProcessed = ocr_cfg.get("actionOnProcessed", "none")
     process_existing = ocr_cfg.get("process_existing", False)
+    skip_duplicates = ocr_cfg.get("skip_duplicates", True)
     capture_errors = ocr_cfg.get("capture_errors", False)
-
-    # Optional TESSDATA_PREFIX
-    tessdata = config.get("tesseract", {}).get("tessdata_prefix")
-    if tessdata and not os.environ.get("TESSDATA_PREFIX"):
-        os.environ["TESSDATA_PREFIX"] = str(tessdata)
-
+    
     db_path = runtime / ocr_cfg.get("hash_db", "processed_hashes.json")
     
     log_file = runtime / ocr_cfg.get("log_file", "ai-scan-filer-ocr.log")
@@ -434,23 +428,29 @@ def main():
     logger = Logger(log_file, log_max_kb, enabled=True)
 
     logger.log(f"Started OCR Processor.")
-    logger.log(f"Runtime: {runtime}")
-    logger.log(f"Config: {config_path}")
-    logger.log(f"Watching: {inbox}")
-    logger.log(f"Processed: {processed}")
-    logger.log(f"Action: {action} | Lang: {lang} | PSM: {psm}")
+    logger.log(f"Locations:")
+    logger.log(f"  Config: {config_path}")
+    logger.log(f"  Runtime: {runtime}")
+    logger.log(f"  Watching: {inbox}")
+    logger.log(f"  Processed: {processed}")
+    logger.log(f"OCR:")
+    logger.log(f"  Lang: {lang}")
+    logger.log(f"  PSM: {psm}")
+    logger.log(f"  Jobs: {jobs}")
+    logger.log(f"Post-processing: {actionOnProcessed}")
 
     processor = Processor(
         inbox=inbox,
         processed=processed,
         archive=archive,
         db_path=db_path,
-        action=action,
+        actionOnProcessed=actionOnProcessed,
         lang=lang,
         psm=psm,
         jobs=jobs,
         capture_errors=capture_errors,
         logger=logger,
+        skip_duplicates=skip_duplicates,
     )
 
     work = WorkQueue(processor, logger)
