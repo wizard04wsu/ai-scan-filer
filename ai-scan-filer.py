@@ -8,7 +8,6 @@ import os
 from pathlib import Path
 import re
 import shutil
-import signal
 import sys
 import threading
 import time
@@ -18,7 +17,7 @@ import psutil
 import requests
 from watchdog.observers import Observer
 from watchdog.events import FileSystemEventHandler
-from aiprompt import get_ai_prompt
+from prompt_classifier import get_ai_prompt
 from pprint import pprint
 
 
@@ -35,13 +34,6 @@ def get_pid_file():
     pid_dir = root / runtime
     pid_dir.mkdir(parents=True, exist_ok=True)
     return pid_dir / f"{SCRIPT_ID}.pid"
-
-def _proc_cmdline(pid: int):
-    try:
-        p = psutil.Process(pid)
-        return " ".join(p.cmdline()).lower()
-    except Exception:
-        return ""
 
 def ensure_single_instance_kill_previous():
     """
@@ -266,6 +258,7 @@ ACCOUNT_NUMBER_RE = re.compile(r"(?i)(?:^|\s)\b([a-z]{,3}\d{6,})\b(?=\s|$)")
 
 
 def extract_features(layout):
+    return layout
     page = layout["pages"][0]
     words = page["words"]
 
@@ -302,7 +295,8 @@ def extract_features(layout):
     features = {
         "candidates": candidates,
         "keywords": keywords,
-        "sample_text": " ".join(texts[:200])
+        #"sample_text": " ".join(texts[:200])
+        "sample_text": " ".join(texts)
     }
     pprint(features)
     return features
@@ -318,11 +312,12 @@ MODEL = "llama3.1:8b"
 
 def call_ollama(features: dict):
     prompt = (
-        get_ai_prompt(config)
+        get_ai_prompt(config, features)
         + "\n\nFEATURE_PACK_JSON:\n"
         + json.dumps(features, ensure_ascii=False)
         + "\n\nReturn STRICT JSON ONLY."
     )
+    prompt = get_ai_prompt(config, features)
 
     r = requests.post(
         OLLAMA_URL,
@@ -393,7 +388,8 @@ def process_pdf(pdf_path: Path, logger):
     
     logger.log(f"Analyzing {pdf_path.name}")
     
-    meta = call_ollama(features)
+    #meta = call_ollama(features)
+    meta = call_ollama(layout)
     
     logger.log("==========")
     logger.log("Meta:")
