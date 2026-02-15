@@ -1,121 +1,33 @@
-#!/usr/bin/env python3
-# Watches a folder for PDFs, renaming and moving them using AI.
-
 import argparse
 from datetime import date, datetime
 import json
-import os
+import queue
 from pathlib import Path
 import re
 import shutil
-import sys
 import threading
 import time
+from typing import Literal
 
 # Third-party packages
-import psutil
 import requests
 from watchdog.observers import Observer
 from watchdog.events import FileSystemEventHandler
 from prompt_classifier import get_ai_prompt
 from pprint import pprint
+from pydantic import BaseModel, Field
+
+# Project packages
+from asf_logger import Logger
+from asf_kill import kill_previous
 
 
 SCRIPT_ID = "ai-scan-filer"
 
-# =========================
-# Ensure Single Instance
-# =========================
-
-def get_pid_file():
-    root = Path(config["root"])
-    runtime = config["paths"].get("runtime", ".runtime")
-
-    pid_dir = root / runtime
-    pid_dir.mkdir(parents=True, exist_ok=True)
-    return pid_dir / f"{SCRIPT_ID}.pid"
-
-def ensure_single_instance_kill_previous():
-    """
-    If a previous instance is running, terminate it.
-    Guarded by checking the process cmdline contains SCRIPT_ID or script filename.
-    """
-    this_pid = os.getpid()
-
-    # Attempt to stop previous
-    pid_file = get_pid_file()
-    if pid_file.exists():
-        try:
-            old_pid = int(pid_file.read_text(encoding="utf-8").strip())
-        except Exception:
-            old_pid = None
-
-        if old_pid and old_pid != this_pid:
-            try:
-                p = psutil.Process(old_pid)
-
-                # Safety: ensure we're killing the right thing
-                cmd = " ".join(p.cmdline()).lower()
-                me = Path(sys.argv[0]).name.lower()
-
-                if me in cmd or SCRIPT_ID.lower() in cmd:
-                    p.terminate()
-                    try:
-                        p.wait(timeout=5)
-                    except psutil.TimeoutExpired:
-                        p.kill()
-                # else: don't kill if it doesn't look like our script
-            except psutil.NoSuchProcess:
-                pass
-            except Exception:
-                pass
-
-    # Write our PID
-    pid_file.write_text(str(this_pid), encoding="utf-8")
-
-    # Optional: cleanup PID file on exit
-    import atexit
-    def _cleanup():
-        try:
-            if pid_file.exists() and pid_file.read_text().strip() == str(this_pid):
-                pid_file.unlink()
-        except Exception:
-            pass
-    atexit.register(_cleanup)
-
-
-# =========================
-# Logging
-# =========================
-
-class Logger:
-    def __init__(self, log_path: Path | None, max_kb=512, enabled=True):
-        self.log_path = log_path
-        self.max_bytes = max_kb * 1024
-        self.enabled = enabled and log_path is not None
-        self._lock = threading.Lock()
-
-    def log(self, msg: str):
-        ts = time.strftime("%Y-%m-%d %H:%M:%S")
-        line = f"[{ts}] {msg}"
-
-        print(line)
-
-        if not self.enabled:
-            return
-        with self._lock:
-            try:
-
-                if self.log_path.exists() and self.log_path.stat().st_size > self.max_bytes:
-                    self.log_path.unlink()
-            except Exception:
-                pass
-            try:
-                with self.log_path.open("a", encoding="utf-8") as f:
-                    f.write(line + "\n")
-            except Exception:
-                # Never let logging crash the watcher
-                pass
+# Globals
+#logger
+#config
+#full_paths
 
 
 # =========================
@@ -145,19 +57,27 @@ def safe_move(src: Path, dst: Path) -> Path:
     return candidate
 
 
-def wait_until_stable(path: Path, timeout_s=10.0):
-    last = -1
+def wait_for_stable_file(path: Path, timeout_s=10):
+    last_size = -1
     start = time.time()
     while time.time() - start < timeout_s:
         try:
             size = path.stat().st_size
         except FileNotFoundError:
             return False
-        if size == last and size > 0:
+        if size == last_size and size > 0:
             return True
-        last = size
+        last_size = size
         time.sleep(0.25)
     return True
+
+
+class DocumentClassification(BaseModel):
+    # Use Literal to restrict doc_type to your specific categories
+    doc_type: Literal["Medical", "Financial", "Property", "Maintenance", 
+                      "Insurance", "Administrative", "Utility", "Unknown"]
+    confidence: float = Field(ge=0, le=1.0)
+    reasoning: str
 
 
 # =========================
@@ -364,109 +284,130 @@ def apply_template(template, fields):
 
     return re.sub(r"\{(\w+)\}", repl, template)
 
-
 # =========================
-# MAIN PROCESS
-# =========================
-
-def process_pdf(pdf_path: Path, logger):
-    if not wait_until_stable(pdf_path):
-        return
-
-    layout_path = pdf_path.with_suffix(".pdf.layout.json")
-    if not layout_path.exists():
-        return
-
-    layout = json.loads(layout_path.read_text(encoding="utf-8"))
-
-    features = extract_features(layout)
-    
-    logger.log("==========")
-    logger.log("Features:")
-    pprint(features)
-    logger.log("----------")
-    
-    logger.log(f"Analyzing {pdf_path.name}")
-    
-    #meta = call_ollama(features)
-    meta = call_ollama(layout)
-    
-    logger.log("==========")
-    logger.log("Meta:")
-    pprint(meta)
-    logger.log("----------")
-
-    doc_type = meta.get("doc_type", "unknown")
-
-    # Ensure title always exists
-    title = meta.get("title", "").strip()
-    if not title:
-        title = pdf_path.stem or "Untitled"
-    meta["title"] = title
-
-    dt = select_date(meta, pdf_path)
-    meta["date"] = format_date(dt)
-
-    template = config["naming"].get(doc_type, config["naming"]["unknown"])
-    filename = apply_template(template, meta)
-
-    dest_dir = build_dest_path(doc_type)
-    dest_path = dest_dir / filename
-
-    moved = safe_move(pdf_path, dest_path)
-    print(f"[✓] Filed: {moved}")
-
-    # Remove layout JSON after successful filing
-    layout_path = pdf_path.with_suffix(".pdf.layout.json")
-    try:
-        if layout_path.exists():
-            layout_path.unlink()
-            print(f"[✓] Removed layout file: {layout_path.name}")
-    except Exception as e:
-        print(f"[!] Failed to remove layout file: {layout_path.name} ({e})")
-
-# =========================
-# WATCHER
+# Worker Queue
 # =========================
 
-class Handler(FileSystemEventHandler):
-    def __init__(self, logger):
-        self.config = config
+class WorkQueue:
+    def __init__(self, processor):
+        self.q = queue.Queue()
+        self.processor = processor
         self.logger = logger
+        self.running = True
+        self.thread = threading.Thread(target=self.run, daemon=True)
+
+    def start(self):
+        self.thread.start()
+
+    def stop(self):
+        self.running = False
+        self.thread.join()
+
+    def enqueue(self, path):
+        self.q.put(path)
+
+    def run(self):
+        while self.running:
+            try:
+                path = self.q.get(timeout=1)
+            except queue.Empty:
+                continue
+            self.processor.process(path)
+
+
+# =========================
+# Watch handler
+# =========================
+
+class WatchHandler(FileSystemEventHandler):
+    def __init__(self, work):
+        self.work = work
 
     def on_created(self, event):
         if event.is_directory:
             return
-        p = Path(event.src_path)
-        if p.suffix.lower() == ".pdf":
-            #try:
-                process_pdf(p, self.logger)
-            #except Exception as e:
-            #    self.logger.log(f"AI filer error processing {p.name}: {e}")
+        path = Path(event.src_path)
+        if path.suffix.lower() == ".pdf":
+            self.work.enqueue(path)
 
     def on_moved(self, event):
         if event.is_directory:
             return
-        p = Path(event.dest_path)
-        if p.suffix.lower() == ".pdf":
-            #try:
-                process_pdf(p, self.logger)
-            #except Exception as e:
-            #    self.logger.log(f"AI filer error processing {p.name}: {e}")
-
-# =========================
-# Config helpers
-# =========================
-
-def load_config(config_path: Path) -> dict:
-    return json.loads(config_path.read_text(encoding="utf-8"))
+        path = Path(event.dest_path)
+        if path.suffix.lower() == ".pdf":
+            self.work.enqueue(path)
 
 
 # =========================
 # Main
 # =========================
 
+
+class Processor:
+    def __init__(self, processed):
+        self.processed = processed
+        self.logger = logger
+
+    def process(self, pdf_path: Path):
+        if not wait_for_stable_file(pdf_path):
+            return
+
+        layout_path = pdf_path.with_suffix(".pdf.layout.json")
+        if not layout_path.exists():
+            return
+
+        layout = json.loads(layout_path.read_text(encoding="utf-8"))
+
+        features = extract_features(layout)
+    
+        logger.log("==========")
+        logger.log("Features:")
+        pprint(features)
+        logger.log("----------")
+    
+        logger.log(f"Analyzing {pdf_path.name}")
+    
+        #meta = call_ollama(features)
+        meta = call_ollama(layout)
+    
+        logger.log("==========")
+        logger.log("Meta:")
+        pprint(meta)
+        logger.log("----------")
+
+        doc_type = meta.get("doc_type", "Unknown")
+
+        if False:
+            # Ensure title always exists
+            title = meta.get("title", "").strip()
+            if not title:
+                title = pdf_path.stem or "Untitled"
+            meta["title"] = title
+
+            dt = select_date(meta, pdf_path)
+            meta["date"] = format_date(dt)
+
+            template = config["naming"].get(doc_type, config["naming"]["unknown"])
+            filename = apply_template(template, meta)
+
+            dest_dir = build_dest_path(doc_type)
+            dest_path = dest_dir / filename
+
+            moved = safe_move(pdf_path, dest_path)
+            print(f"[✓] Filed: {moved}")
+
+            # Remove layout JSON after successful filing
+            layout_path = pdf_path.with_suffix(".pdf.layout.json")
+            try:
+                if layout_path.exists():
+                    layout_path.unlink()
+                    print(f"[✓] Removed layout file: {layout_path.name}")
+            except Exception as e:
+                print(f"[!] Failed to remove layout file: {layout_path.name} ({e})")
+
+
 def main():
+    global logger, config
     ap = argparse.ArgumentParser()
     ap.add_argument("--config", default="", help="Path to config.json")
     args = ap.parse_args()
@@ -476,32 +417,54 @@ def main():
         if args.config
         else Path(__file__).with_name("config.json")
     )
-    global config
-    config = load_config(config_path)
+    config = json.loads(config_path.read_text(encoding="utf-8"))
+    filer_cfg = config.get("ocr", {})
     
-    ensure_single_instance_kill_previous()
 
     root = Path(config["root"]).expanduser()
     paths = config["paths"]
-    processed = root / paths.get("processed", "Processed")
-    runtime = root / paths.get("runtime", ".runtime")
-
-    runtime.mkdir(parents=True, exist_ok=True)
-    processed.mkdir(parents=True, exist_ok=True)
     
-    global logger
-    log_file = runtime / paths.get("log_file", "ai-scan-filer.log")
-    log_max_kb = paths.get("log_max_kb", 512)
+    runtime = root / paths.get("runtime", ".asf")
+    runtime.mkdir(parents=True, exist_ok=True)
+    
+    log_file = runtime / filer_cfg.get("log_file", "asf-filer.log")
+    log_max_kb = filer_cfg.get("log_max_kb", 512)
     logger = Logger(log_file, log_max_kb, enabled=True)
+    
+    
+    pid_path = runtime / f"{SCRIPT_ID}.pid"
+    kill_previous(pid_path)
+    
+
+    processed = root / paths.get("processed", "Processed")
+
+    processed.mkdir(parents=True, exist_ok=True)
+    runtime.mkdir(parents=True, exist_ok=True)
+    
+    process_existing = filer_cfg.get("process_existing", False)
 
     logger.log(f"Started AI Filer.")
-    logger.log(f"Runtime: {runtime}")
-    logger.log(f"Config: {config_path}")
-    logger.log(f"Watching: {processed}")
-    
+    logger.log(f"Locations:")
+    logger.log(f"  Config: {config_path}")
+    logger.log(f"  Runtime: {runtime}")
+    logger.log(f"  Watching: {processed}")
+
+    processor = Processor(
+        processed=processed,
+    )
+    work = WorkQueue(processor)
+    work.start()
+
+    handler = WatchHandler(work)
     observer = Observer()
-    observer.schedule(Handler(logger), str(processed), recursive=False)
+    observer.schedule(handler, str(processed), recursive=False)
     observer.start()
+
+    if process_existing:
+        pdfs = sorted(processed.glob("*.pdf"), key=lambda p: p.stat().st_mtime)
+        logger.log(f"Startup enqueue: {len(pdfs)} existing PDF(s)")
+        for p in pdfs:
+            work.enqueue(p)
 
     logger.log("Watching for PDFs. Ctrl+C to stop.")
 
@@ -510,7 +473,9 @@ def main():
             time.sleep(1)
     except KeyboardInterrupt:
         observer.stop()
+
     observer.join()
+    work.stop()
     logger.log("Stopped.")
 
 

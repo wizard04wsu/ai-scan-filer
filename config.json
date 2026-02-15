@@ -6,9 +6,7 @@
 		"processed": "- Inbox\\OCR",
 		"archive": "- Inbox\\Original",
 		"unsorted": "- Inbox\\Unsorted",
-		"runtime": ".runtime",
-		"log_file": "ai-scan-filer.log",
-		"log_max_kb": 512
+		"runtime": ".runtime"
 	},
 	
 	"ocr": {
@@ -20,7 +18,12 @@
 		"capture_errors": false,
 		"skip_duplicates": false,
 		"hash_db": "processed_hashes.json",
-		"log_file": "ai-scan-filer-ocr.log",
+		"log_file": "asf-ocr.log",
+		"log_max_kb": 512
+	},
+	
+	"filer": {
+		"log_file": "asf-filer.log",
 		"log_max_kb": 512
 	},
 	

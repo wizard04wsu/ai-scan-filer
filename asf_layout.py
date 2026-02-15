@@ -24,7 +24,7 @@ from asf_logger import Logger
 # Layout JSON export
 # =========================
 
-def export_layout_json(pdf_path: Path, json_path: Path, logger: Logger) -> None:
+def export_layout_json(pdf_path: Path, json_path: Path, page: int=0, logger: Logger=None) -> None:
     """
     Export word-level coordinates from the PDF text layer.
     Output schema is stable and easy for later AI grouping.
@@ -34,7 +34,7 @@ def export_layout_json(pdf_path: Path, json_path: Path, logger: Logger) -> None:
     
     
     
-    page = doc.load_page(0)
+    page = doc.load_page(page)
     words = page.get_text("words") or []
     mx = 1000/float(page.rect.width)
     payload = [
@@ -82,6 +82,7 @@ def export_layout_json(pdf_path: Path, json_path: Path, logger: Logger) -> None:
 
     doc.close()
     json_path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
-    logger.log(f"Layout JSON written: {json_path.name}")
+    if logger:
+        logger.log(f"Layout JSON written: {json_path.name}")
     #except Exception as e:
     #    logger.log(f"Layout export failed for {pdf_path.name}: {e}")

@@ -13,6 +13,7 @@ from pathlib import Path
 from watchdog.observers import Observer
 from watchdog.events import FileSystemEventHandler
 
+# Project packages
 from asf_logger import Logger
 from asf_kill import kill_previous
 from asf_layout import export_layout_json
@@ -23,7 +24,6 @@ SCRIPT_ID = "ai-scan-filer-ocr"
 # Globals
 #logger
 #config
-#full_paths
 
 
 # =========================
@@ -58,7 +58,7 @@ def wait_for_stable_file(path: Path, timeout_s=10):
 # =========================
 
 class WorkQueue:
-    def __init__(self, processor, logger):
+    def __init__(self, processor):
         self.q = queue.Queue()
         self.processor = processor
         self.logger = logger
@@ -113,7 +113,7 @@ class WatchHandler(FileSystemEventHandler):
 
 class Processor:
     def __init__(self, inbox, processed, archive, db_path,
-                 actionOnProcessed, lang, psm, jobs, capture_errors, logger, skip_duplicates):
+                 actionOnProcessed, lang, psm, jobs, capture_errors, skip_duplicates):
         self.inbox = inbox
         self.processed = processed
         self.archive = archive
@@ -174,7 +174,7 @@ class Processor:
 
         # Layout export
         layout_path = out_path.with_suffix(".pdf.layout.json")
-        export_layout_json(out_path, layout_path, self.logger)
+        export_layout_json(out_path, layout_path, 0, self.logger)
 
         # Handle original
         if self.actionOnProcessed == "delete":
@@ -196,7 +196,6 @@ def main():
         if args.config
         else Path(__file__).with_name("config.json")
     )
-    print(config_path)
     config = json.loads(config_path.read_text(encoding="utf-8"))
     ocr_cfg = config.get("ocr", {})
     
@@ -206,7 +205,7 @@ def main():
     runtime = root / paths.get("runtime", ".asf")
     runtime.mkdir(parents=True, exist_ok=True)
     
-    log_file = runtime / ocr_cfg.get("log_file", "ai-scan-filer-ocr.log")
+    log_file = runtime / ocr_cfg.get("log_file", "asf-ocr.log")
     log_max_kb = ocr_cfg.get("log_max_kb", 512)
     logger = Logger(log_file, log_max_kb, enabled=True)
     
@@ -257,11 +256,10 @@ def main():
         psm=psm,
         jobs=jobs,
         capture_errors=capture_errors,
-        logger=logger,
         skip_duplicates=skip_duplicates,
     )
 
-    work = WorkQueue(processor, logger)
+    work = WorkQueue(processor)
     work.start()
 
     handler = WatchHandler(work)

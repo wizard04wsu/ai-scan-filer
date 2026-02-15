@@ -43,7 +43,8 @@ if cfg = "" Then
 end if
 
 ocrScript    = scriptDir & "asf_ocr.py"
-filerScript  = scriptDir & "ai-scan-filer.py"
+'TODO filerScript  = scriptDir & "asf_filer.py"
+filerScript  = scriptDir & "asf_classifier.py"
 
 pyCmd = "python"
 pauseOnError = ""

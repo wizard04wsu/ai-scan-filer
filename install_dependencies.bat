@@ -18,7 +18,7 @@ if %errorlevel%==0 (
 )
 else (
     echo Installing required packages...
-    python -m pip install --upgrade pymupdf psutil requests watchdog
+    python -m pip install --upgrade ollama pymupdf psutil requests watchdog
 )
 
 echo Dependencies installed.
