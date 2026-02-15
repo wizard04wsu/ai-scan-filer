@@ -42,7 +42,7 @@ if cfg = "" Then
 	cfg = scriptDir & "config.json"
 end if
 
-ocrScript    = scriptDir & "ai-scan-filer-ocr.py"
+ocrScript    = scriptDir & "asf_ocr.py"
 filerScript  = scriptDir & "ai-scan-filer.py"
 
 pyCmd = "python"
