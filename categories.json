@@ -1,68 +1,110 @@
 {
 	"Medical": {
-		"description": "Any document regarding healthcare (labs, scans, insurance EOBs). This does not include documents about healthcare insurance policies themselves.",
+		"description": "Healthcare-related documents: provider bills, lab results, imaging, visit summaries, prescriptions, and medical insurance EOBs. NOT insurance policy documents (those go under Insurance).",
 		"fields": ["statement_date", "insurance_provider", "account_number", "service_date", "service_provider"],
 		"categories": {
 			"EOB": {
-				"description": "",
+				"description": "Explanation of Benefits",
 				"location": ["Medical", "EOB"],
 				"naming": [
-					"{statement_date} EOB - {insurance_provider} #{account_number} ({service_date} {service_provider}).pdf",
-					"{statement_date} EOB - {insurance_provider} #{account_number} ({service_provider}).pdf",
-					"{statement_date} EOB - {insurance_provider} #{account_number} ({service_date}).pdf",
-					"{statement_date} EOB - {insurance_provider} ({service_date} {service_provider}).pdf",
-					"{statement_date} EOB - {insurance_provider} ({service_provider}).pdf",
-					"{statement_date} EOB - {insurance_provider} ({service_date}).pdf"
+					"{statement_date} EOB - {insurance_provider} #{account_number} ({service_date} {service_provider})",
+					"{statement_date} EOB - {insurance_provider} #{account_number} ({service_provider})",
+					"{statement_date} EOB - {insurance_provider} #{account_number} ({service_date})",
+					"{statement_date} EOB - {insurance_provider} ({service_date} {service_provider})",
+					"{statement_date} EOB - {insurance_provider} ({service_provider})",
+					"{statement_date} EOB - {insurance_provider} ({service_date})"
+				]
+			},
+			"Visit": {
+				"description": "Summaries of visits to PCP or specialists (medical, vision, dental)",
+				"location": ["Medical", "Visit"],
+				"naming": [
+					""
+				]
+			},
+			"Results": {
+				"description": "Lab results, imaging, physical training evaluations",
+				"location": ["Medical", "Results"],
+				"naming": [
+					""
+				]
+			},
+			"Bill": {
+				"description": "Bills for visits, services, treatments, and surgeries, and prescription copays",
+				"location": ["Medical", "Bill"],
+				"naming": [
+					""
+				]
+			},
+			"Prescription": {
+				"description": "Prescriptions, refills",
+				"location": ["Medical", "Prescription"],
+				"naming": [
+					""
+				]
+			},
+			"Treatment": {
+				"description": "Reference documents related to specific treatments or surgeries. This might have to be a manual folder instead of automated.",
+				"location": ["Medical", "Treatment"],
+				"naming": [
+					""
 				]
 			}
 		}
 	},
-	"Financial": {
-		"description": "Documents from bank accounts or investments (bank statements, retirement planning).",
-		"categories": {
-			
-		}
+
+	"Financial_Account": {
+		"description": "Account statements showing balances, transactions, or activity for bank, credit card, loan, investment, or retirement accounts. This category is ONLY for official account statements. NOT invoices, NOT government fees, NOT debt collection notices.",
+		"categories": {}
 	},
+
+	"Tax": {
+		"description": "Tax-related documents: federal, state, or local tax returns, bills, assessments, refunds, tax forms (W-2/1099/1098), and tax delinquency notices. Includes county personal property taxes. NOT general DMV/permit notices unless the primary purpose is taxation.",
+		"categories": {}
+	},
+
 	"Property": {
-		"description": "Documents tied to the ownership of a physical address or vehicle (mortgage refinancing, property taxes, lease agreements).",
-		"categories": {
-			
-		}
+		"description": "Documents establishing ownership, legal rights, or long-term obligations tied to a physical address or titled vehicle. Examples: deeds, titles, lease agreements, mortgage documents, and closing paperwork. NOT repair/inspection receipts (Maintenance).",
+		"categories": {}
 	},
+
 	"Maintenance": {
-		"description": "Invoices for labor or parts involving maintenance, repair, or annual inspection of a home, vehicle, or appliance.",
-		"categories": {
-			
-		}
+		"description": "Invoices, receipts, or notices for maintenance, repair, or inspections of a home, vehicle, or appliance. Includes state-required vehicle emissions/safety inspections and inspection fee notices (RapidPass or shop inspection). Also includes service calls, parts/labor invoices, and preventive maintenance.",
+		"categories": {}
 	},
+
 	"Insurance": {
-		"description": "Policy renewals, coverage summaries, or declarations pages (health, auto, home, life).",
-		"categories": {
-			
-		}
+		"description": "Insurance policy documents: declarations pages, coverage summaries, renewals, premium notices, endorsements/changes, and cancellations (health, auto, home, life). NOT medical EOBs (Medical). NOT warranty/service contracts (Warranty).",
+		"categories": {}
 	},
+
 	"Warranty": {
-		"description": "Warranties, receipts for home appliances, or other documentation needed to have a product repaired or replaced for free.",
-		"categories": {
-			
-		}
+		"description": "Manufacturer or third-party warranty/service contract documents covering repairs or replacement: coverage terms, registration, service plans, exclusions, deductibles, and claims paperwork. NOT insurance policies. NOT routine repair invoices (Maintenance). NOT government notices.",
+		"categories": {}
 	},
-	"Identity": {
-		"description": "Birth certificates, passports, or driver's licenses.",
-		"categories": {
-			
-		}
-	},
+
 	"Utility": {
-		"description": "Recurring household bills (electricity, water, internet, trash).",
-		"categories": {
-			
-		}
+		"description": "Recurring household service bills: electricity, gas, water, sewer, trash, internet, cable, phone. This is for ongoing service billing statements, not one-time fees.",
+		"categories": {}
 	},
+
+	"Government_Registration": {
+		"description": "Government-issued documents related to registration, licensing, permits, or official identification. Includes DMV registration renewal notices, driver’s licenses, passports, state IDs, permit approvals/denials, and license renewals. NOT tax documents (Tax). NOT court summons/jury duty (Legal_Civic).",
+		"categories": {}
+	},
+
+	"Legal_Civic": {
+		"description": "Court and civic duty documents: summons, subpoenas, jury duty notices, court orders, hearing notices, and other legal or civic obligations.",
+		"categories": {}
+	},
+
+	"Receipts_Purchases": {
+		"description": "One-time retail or online purchase receipts not related to maintenance or warranty contracts. Examples: store receipts, online order confirmations, electronics purchases, furniture purchases. NOT service/repair invoices (Maintenance). NOT warranty contracts (Warranty).",
+		"categories": {}
+	},
+
 	"Unknown": {
-		"description": "Use this category if you are unsure or if the document does not match any of the above.",
-		"categories": {
-			
-		}
+		"description": "Use this category only when the document does not clearly fit any defined category or is too ambiguous to classify confidently. Debt collection notices should end up here.",
+		"categories": {}
 	}
 }

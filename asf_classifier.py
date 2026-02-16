@@ -204,17 +204,26 @@ class Processor:
         
         text = get_ocr_content(pdf_path, 0, logger)
         meta = classify_document(text, get_text_prompt(categories))
-        logger.log(f"Category: {meta["doc_category"]} ({meta["confidence"]*100}% confidence)")
+        logger.log(f"\033[92mCategory: {meta["doc_category"]} ({meta["confidence"]*100}% confidence)\033[0m")
         logger.log(f"Reasoning: {meta["reasoning"]}")
         
-        if meta["confidence"] < 0.8 and layout_path.exists():
-            logger.log("Low confidence; retrying using layout information.")
+        #if meta["confidence"] <= 0.8:
+        #    text = get_ocr_content(pdf_path, 1, logger)
+        #    if text:
+        #        logger.log("Low confidence; retrying using 2nd page.")
+        #        meta = classify_document(text, get_text_prompt(categories))
+        #        logger.log(f"Category: {meta["doc_category"]} ({meta["confidence"]*100}% confidence)")
+        #        logger.log(f"Reasoning: {meta["reasoning"]}")
+        
+        #TODO: choose the highest confidence of above and below, and go with that; ties first go to not-Unknown, then to upper
+        if meta["confidence"] <= 0.8 and layout_path.exists():
+            logger.log("\033[31mLow confidence\033[0m; retrying using layout information.")
             layout = json.loads(layout_path.read_text(encoding="utf-8"))
             meta = classify_document(layout, get_layout_prompt(categories))
-            logger.log(f"Category: {meta["doc_category"]} ({meta["confidence"]*100}% confidence)")
+            logger.log(f"\033[92mCategory: {meta["doc_category"]} ({meta["confidence"]*100}% confidence)\033[0m")
             logger.log(f"Reasoning: {meta["reasoning"]}")
         
-        #TODO: if confidence is still < 0.8, make sure it is not sorted
+        #TODO: if confidence is still <= 0.8, make sure it is not sorted
         
         doc_category = meta.get("doc_category", "Unknown")
         
