@@ -1,0 +1,68 @@
+{
+	"Medical": {
+		"description": "Any document regarding healthcare (labs, scans, insurance EOBs). This does not include documents about healthcare insurance policies themselves.",
+		"fields": ["statement_date", "insurance_provider", "account_number", "service_date", "service_provider"],
+		"categories": {
+			"EOB": {
+				"description": "",
+				"location": ["Medical", "EOB"],
+				"naming": [
+					"{statement_date} EOB - {insurance_provider} #{account_number} ({service_date} {service_provider}).pdf",
+					"{statement_date} EOB - {insurance_provider} #{account_number} ({service_provider}).pdf",
+					"{statement_date} EOB - {insurance_provider} #{account_number} ({service_date}).pdf",
+					"{statement_date} EOB - {insurance_provider} ({service_date} {service_provider}).pdf",
+					"{statement_date} EOB - {insurance_provider} ({service_provider}).pdf",
+					"{statement_date} EOB - {insurance_provider} ({service_date}).pdf"
+				]
+			}
+		}
+	},
+	"Financial": {
+		"description": "Documents from bank accounts or investments (bank statements, retirement planning).",
+		"categories": {
+			
+		}
+	},
+	"Property": {
+		"description": "Documents tied to the ownership of a physical address or vehicle (mortgage refinancing, property taxes, lease agreements).",
+		"categories": {
+			
+		}
+	},
+	"Maintenance": {
+		"description": "Invoices for labor or parts involving maintenance, repair, or annual inspection of a home, vehicle, or appliance.",
+		"categories": {
+			
+		}
+	},
+	"Insurance": {
+		"description": "Policy renewals, coverage summaries, or declarations pages (health, auto, home, life).",
+		"categories": {
+			
+		}
+	},
+	"Warranty": {
+		"description": "Warranties, receipts for home appliances, or other documentation needed to have a product repaired or replaced for free.",
+		"categories": {
+			
+		}
+	},
+	"Identity": {
+		"description": "Birth certificates, passports, or driver's licenses.",
+		"categories": {
+			
+		}
+	},
+	"Utility": {
+		"description": "Recurring household bills (electricity, water, internet, trash).",
+		"categories": {
+			
+		}
+	},
+	"Unknown": {
+		"description": "Use this category if you are unsure or if the document does not match any of the above.",
+		"categories": {
+			
+		}
+	}
+}

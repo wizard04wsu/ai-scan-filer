@@ -24,10 +24,30 @@ from asf_ocr_data import get_ocr_content
 SCRIPT_ID = "ai-scan-filer"
 
 
+DOC_CATEGORIES = {
+    "Medical":
+        "Any document regarding healthcare (labs, scans, insurance EOBs). This does not include documents about healthcare insurance policies themselves.",
+    "Financial":
+        "Bank statements, investment reports, or credit card statements.",
+    "Property":
+        "Documents tied to the ownership of a physical address or vehicle (mortgage refinancing, property taxes, lease agreements).",
+    "Maintenance":
+        "Invoices for labor or parts involving maintenance, repair, or annual inspection of a home, vehicle, or appliance.",
+    "Insurance":
+        "Policy renewals, coverage summaries, or declarations pages (health, auto, home, life).",
+    "Administrative":
+        "Warranties, birth certificates, passports, or legal contracts.",
+    "Utility":
+        "Recurring household bills (electricity, water, internet, trash).",
+    "Unknown":
+        "Use this category if you are unsure or if the document does not match any of the above.",
+}
+DocCategory = Enum("DocCategory", {k: k for k in DOC_CATEGORIES.keys()})
+
 # Globals
 #logger
 #config
-#categories
+get_ai_prompt = get_text_prompt
 
 
 # =========================
@@ -55,77 +75,83 @@ def wait_for_stable_file(path: Path, timeout_s=10):
 
 MODEL = "llama3.1:8b"
 
-def build_schema_from_categories(categories: dict) -> dict:
-    return {
-        "type": "object",
-        "properties": {
-            "doc_category": {
-                "type": "string",
-                "enum": sorted(categories.keys()),   # restrict values to config keys
-            },
-            "confidence": {
-                "type": "number",
-                "minimum": 0.0,
-                "maximum": 1.0,
-            },
-            "reasoning": {
-                "type": "string",
-            },
-            "error": {
-                "type": "string",
-            },
-        },
-        "required": ["doc_category", "confidence", "reasoning"],
-        "additionalProperties": False,
-    }
-
 class ClassificationError(Exception):
     """Raised when the document classification step fails."""
     pass
 
-def classify_document(content, prompt):
-    
-    schema = build_schema_from_categories(categories)
+# Use this to enforce strict JSON responses
+class DocumentClassification(BaseModel):
+    # Use Literal to restrict doc_category to your specific categories
+    doc_category: DocCategory = Field(description="Document category")
+    confidence: float = Field(ge=0, le=1.0)
+    reasoning: str
+
+def classify_document(content):
+    schema = DocumentClassification.model_json_schema()
+    prompt = get_ai_prompt(DOC_CATEGORIES)
     
     try:
-        response = ollama.chat(
-            model=MODEL,
-            messages=[
-                {
-                    'role': 'system',
-                    'content': prompt
-                },
-                {
-                    'role': 'user',
-                    'content': f"Classify this document content:\n\n{content}"
-                }
-            ],
-            format=schema,
-            options={'temperature': 0} # Set to 0 for maximum consistency
-        )
+        try:
+            response = ollama.chat(
+                model=MODEL,
+                messages=[
+                    {
+                        'role': 'system',
+                        'content': prompt
+                    },
+                    {
+                        'role': 'user',
+                        'content': f"Classify this document content:\n\n{content}"
+                    }
+                ],
+                format=schema,
+                options={'temperature': 0} # Set to 0 for maximum consistency
+            )
         
-        content = response["message"]["content"]
-        data = json.loads(content)
+        # ---- Network / timeout / connection issues ----
+        except httpx.ResponseError as e:
+            raise ClassificationError(f"Ollama connection error: {e}") from e
         
-        # schema should already enforce this, but keeping a guard is nice:
-        if data.get("doc_category") not in categories:
-            raise ClassificationError(f"Unknown doc_category: {data.get('doc_category')!r}")
+        # ---- 4xx / 5xx HTTP errors ----
+        except httpx.HTTPStatusError as e:
+            raise ClassificationError(f"Ollama HTTP error: {e}") from e
         
-        return data
+        # ---- Anything else from Ollama ----
+        except Exception as e:
+            raise ClassificationError(f"Ollama call failed: {e}") from e
         
-    except (httpx.RequestError, httpx.HTTPStatusError) as e:
+        
+        # ---- Validate response structure ----
+        try:
+            content = response["message"]["content"]
+        except (KeyError, TypeError) as e:
+            raise ClassificationError(
+                f"Unexpected Ollama response structure:\n{response!r}"
+            ) from e
+        
+        # ---- Parse JSON ----
+        try:
+            data = json.loads(content)
+        except json.JSONDecodeError as e:
+            raise ClassificationError(
+                f"Model returned invalid JSON:\n{content}"
+            ) from e
+        
+        # ---- Validate schema ----
+        try:
+            obj = DocumentClassification.model_validate(data)
+            return obj.model_dump(mode="json")
+        except ValidationError as e:
+            raise ClassificationError(
+                f"Schema validation failed:\n{e}"
+            ) from e
+    
+    except Exception as e:
+        logger.log(f"Classification failed:\n{e}")
         return {
             "doc_category": "Unknown",
             "confidence": 0.0,
-            "reasoning": "Error",
-            "error": f"Ollama/network error: {e}",
-        }
-    except (KeyError, TypeError, json.JSONDecodeError, ClassificationError) as e:
-        return {
-            "doc_category": "Unknown",
-            "confidence": 0.0,
-            "reasoning": "Error",
-            "error": str(e),
+            "error": str(e)
         }
 
 
@@ -203,22 +229,20 @@ class Processor:
         logger.log(f"Analyzing {pdf_path.name}")
         
         text = get_ocr_content(pdf_path, 0, logger)
-        meta = classify_document(text, get_text_prompt(categories))
+        meta = classify_document(text)
         logger.log(f"Category: {meta["doc_category"]} ({meta["confidence"]*100}% confidence)")
         logger.log(f"Reasoning: {meta["reasoning"]}")
         
         if meta["confidence"] < 0.8 and layout_path.exists():
             logger.log("Low confidence; retrying using layout information.")
             layout = json.loads(layout_path.read_text(encoding="utf-8"))
-            meta = classify_document(layout, get_layout_prompt(categories))
+            meta = classify_document(layout)
             logger.log(f"Category: {meta["doc_category"]} ({meta["confidence"]*100}% confidence)")
             logger.log(f"Reasoning: {meta["reasoning"]}")
         
         #TODO: if confidence is still < 0.8, make sure it is not sorted
         
         doc_category = meta.get("doc_category", "Unknown")
-        
-        logger.log("Watching for PDFs. Ctrl+C to stop.")
 
         if False:
             # Ensure title always exists
@@ -250,7 +274,7 @@ class Processor:
 
 
 def main():
-    global logger, config, categories
+    global logger, config
     
     ap = argparse.ArgumentParser()
     ap.add_argument("--config", default="", help="Path to config.json")
@@ -263,9 +287,6 @@ def main():
     )
     config = json.loads(config_path.read_text(encoding="utf-8"))
     filer_cfg = config.get("ocr", {})
-    
-    categories_path = Path(".\\categories.json")
-    categories = json.loads(categories_path.read_text(encoding="utf-8"))
     
 
     root = Path(config["root"]).expanduser()

@@ -1,12 +1,12 @@
 {
-	"root": "F:\\Files\\Documentation\\- Test 1",
+	"root": "F:\\Files\\Documentation\\- Test 2",
 	
 	"paths": {
 		"inbox": "- Inbox",
 		"processed": "- Inbox\\OCR",
 		"archive": "- Inbox\\Original",
 		"unsorted": "- Inbox\\Unsorted",
-		"runtime": ".runtime"
+		"runtime": ".asf"
 	},
 	
 	"ocr": {
@@ -26,30 +26,6 @@
 		"log_file": "asf-filer.log",
 		"log_max_kb": 512
 	},
-	
-	"keywords": [
-		"account",
-		"bank",
-		"benefits",
-		"bill",
-		"county",
-		"due",
-		"eob",
-		"federal",
-		"form",
-		"invoice",
-		"vendor",
-		"pay",
-		"paid",
-		"payment",
-		"policy",
-		"provider",
-		"receipt",
-		"service",
-		"state",
-		"statement",
-		"tax"
-	],
 	
 	"field_type": {
 		"biller": {

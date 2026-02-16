@@ -13,7 +13,7 @@ from typing import Literal
 import requests
 from watchdog.observers import Observer
 from watchdog.events import FileSystemEventHandler
-from prompt_classifier import get_ai_prompt
+from prompt_classifier_layout import get_ai_prompt
 from pprint import pprint
 from pydantic import BaseModel, Field
 

@@ -14,9 +14,9 @@ from watchdog.observers import Observer
 from watchdog.events import FileSystemEventHandler
 
 # Project packages
+from asf_ocr_data import export_layout_json
 from asf_logger import Logger
 from asf_kill import kill_previous
-from asf_layout import export_layout_json
 
 
 SCRIPT_ID = "ai-scan-filer-ocr"
